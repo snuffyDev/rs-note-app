@@ -14,21 +14,6 @@ pub struct AppData {
     pub data_dir: PathBuf,
 }
 
-pub fn ensure_data_dir_exists(app_path: &PathBuf) -> Result<(), String> {
-    let data_path = app_path.join("data");
-    match data_path.try_exists() {
-        Ok(res) => {
-            match res {
-                true => create_dir(data_path).unwrap(),
-                false => {}
-            }
-
-            Ok(())
-        }
-        Err(e) => throw!("Error when checking for data directory: {}", e.to_string()),
-    }
-}
-
 impl AppData {
     pub fn initialize_from_config(config_file: &Config) -> Self {
         let app_dir = tauri::api::path::app_data_dir(config_file).unwrap();
@@ -51,6 +36,7 @@ impl NoteFile {
     pub fn new(file_path: PathBuf, content: String) -> NoteFile {
         NoteFile { file_path, content }
     }
+    // Load the note file from disk (currently unused)
     pub fn load(&mut self) -> Result<Self, String> {
         let note = match std::fs::read_to_string(&self.file_path) {
             Ok(note_str) => {
@@ -66,26 +52,39 @@ impl NoteFile {
         };
         Ok(note)
     }
+    // Save the note file to disk and update self
     pub fn save(&self, buf: &[u8]) -> Result<(), String> {
         match write_atomically(&self.file_path, &buf) {
             Ok(_) => {}
             Err(e) => throw!("File save error: {}", e.to_string()),
         }
+
         Ok(())
     }
 }
-#[derive(Default, Serialize, Deserialize, Clone)]
 
+pub trait KV {
+    fn set(&mut self, key: PathBuf, content: String);
+
+    fn get(&mut self, key: PathBuf) -> Option<NoteFile>;
+    fn get_all(&self) -> Vec<NoteFile>;
+
+    fn has_key(&self, key: PathBuf) -> bool;
+}
+
+#[derive(Default, Serialize, Deserialize, Clone)]
 pub struct Notes {
     pub entries: HashMap<PathBuf, Option<NoteFile>>,
 }
 
 impl Notes {
+    // Initialize Notes without reading the data directory
     pub fn new() -> Self {
         Self {
             entries: HashMap::<PathBuf, Option<NoteFile>>::new(),
         }
     }
+    // Initialize Notes from the data directory
     pub fn new_from_data_dir(data_path: &PathBuf) -> Self {
         let mut entries = HashMap::new();
         for entry in read_dir(data_path).unwrap() {
@@ -107,7 +106,7 @@ impl Notes {
         match self.entries.contains_key(&key) {
             true => {
                 let data = self.entries.get_mut(&key).unwrap();
-                let note = &mut data.as_ref().unwrap();
+                let mut note = &mut data.as_ref().unwrap();
                 note.save(&content.as_bytes()).unwrap();
             }
             false => {
@@ -115,38 +114,33 @@ impl Notes {
                     file_path: key.clone(),
                     content: content.to_string(),
                 };
-                new_note.save(&content.as_bytes()).expect("Error saving newly inserted note");
+                new_note
+                    .save(&content.as_bytes())
+                    .expect("Error saving newly inserted note");
 
-                self.entries.insert(key.clone(), Some(new_note));
+                self.entries.insert(key, Some(new_note));
             }
         };
     }
+}
 
-    pub fn set(&mut self, key: PathBuf, content: String) {
-        self
-            .entries
+impl KV for Notes {
+    fn set(&mut self, key: PathBuf, content: String) {
+        self.entries
             .insert(key.clone(), Some(NoteFile::new(key.clone(), content)));
     }
 
-    pub fn get(&mut self, key: PathBuf) -> Option<NoteFile> {
+    fn get(&mut self, key: PathBuf) -> Option<NoteFile> {
         let result = self.entries.get(&key).unwrap();
-        let note = result.clone();
-        note
+        result.to_owned()
     }
-    pub fn has_key(&self, key: PathBuf) -> bool {
-        if self.entries.contains_key(&key) {
-            true
-        } else {
-            false
-        }
+    fn has_key(&self, key: PathBuf) -> bool {
+        let key_exists = self.entries.contains_key(&key);
+        key_exists
     }
 
-    pub fn get_all(&self) -> Vec<NoteFile> {
-        let result = self
-            .entries
-            .values()
-            .map(|e| e.clone().unwrap())
-            .collect();
+    fn get_all(&self) -> Vec<NoteFile> {
+        let result = self.entries.values().map(|e| e.clone().unwrap()).collect();
 
         result
     }
@@ -184,6 +178,7 @@ impl Store {
         let note = data.get(key.to_path_buf());
         note
     }
+
     pub fn has_key(&self, key: &PathBuf) -> bool {
         let data = self.notes.lock().unwrap();
         let key_exists = match data.has_key(self.data_path.join(key.to_path_buf())) {
@@ -214,11 +209,13 @@ pub fn save_file<R: Runtime>(
     let cache = data.0.lock().unwrap();
 
     match cache.has_key(&file_name) {
-        true => cache
-            .get(&file_name)
-            .unwrap()
-            .save(&content.as_bytes())
-            .unwrap(),
+        true => {
+            cache
+                .get(&file_name)
+                .unwrap()
+                .save(&content.as_bytes())
+                .unwrap();
+        }
         false => {
             cache.set(&file_name, content.clone());
         }

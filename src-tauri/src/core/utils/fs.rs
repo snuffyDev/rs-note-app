@@ -7,7 +7,7 @@ pub fn ensure_parent_exists(file_path: &PathBuf) -> Result<(), String> {
         if let Err(e) = std::fs::create_dir_all(parent) {
             throw!("Error creating parent folder: {}", e.to_string());
         }
-    }StateManager
+    }
     Ok(())
 }
 
