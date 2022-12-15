@@ -13,10 +13,9 @@ macro_rules! throw {
 mod core;
 mod data;
 
-use std::sync::{Arc, Mutex};
+use std::sync::Mutex;
 
 use data::{AppData, Data, Store};
-use tauri::{Manager, State};
 // Learn more about Tauri commands at https://tauri.app/v1/guides/features/command
 #[tauri::command]
 fn greet(name: &str) -> String {
@@ -39,7 +38,7 @@ fn main() {
         .build(ctx)
         .expect("error while running tauri application");
 
-    app.run(|app_handle, e| match e {
+    app.run(|_app_handle, e| match e {
         _ => {}
     });
 }

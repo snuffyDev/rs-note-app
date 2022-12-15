@@ -1,6 +1,6 @@
-use std::{path::PathBuf, io::Write};
+use std::{io::Write, path::PathBuf};
 
-use atomicwrites::{OverwriteBehavior, AtomicFile};
+use atomicwrites::{AtomicFile, OverwriteBehavior};
 
 pub fn ensure_parent_exists(file_path: &PathBuf) -> Result<(), String> {
     if let Some(parent) = file_path.parent() {
@@ -11,10 +11,10 @@ pub fn ensure_parent_exists(file_path: &PathBuf) -> Result<(), String> {
     Ok(())
 }
 
-pub fn write_atomically(file_path: &PathBuf, buf: &[u8]) -> Result<(), String> {
+pub fn write_atomically(file_path: &PathBuf, buf: serde_json::Value) -> Result<(), String> {
     ensure_parent_exists(&file_path)?;
     let af = AtomicFile::new(&file_path, OverwriteBehavior::AllowOverwrite);
-    match af.write(|f| f.write_all(&buf)) {
+    match af.write(|f| f.write_all(&buf.to_string().into_bytes())) {
         Ok(_) => Ok(()),
         Err(e) => Err(e.to_string()),
     }
