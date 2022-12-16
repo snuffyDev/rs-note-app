@@ -44,17 +44,22 @@
 	<input placeholder="Title" type="text" bind:value={$file.content.file_name} />
 	<div class="split">
 		<div class="col">
-			<textarea bind:value={$file.content.content} cols="30" rows="10" />
+			<textarea
+				bind:value={$file.content.content}
+				cols="30"
+				rows="10"
+				style:min-width={"10vw"}
+				style:max-width={"60vw"}
+			/>
 		</div>
-		<div class="col">{@html output}</div>
+		<div class="col markdown-body" style="width:100%">
+			<div style="min-width: 100%; height: 100%;">{@html output}</div>
+		</div>
 	</div>
 
 	<button on:click={onClickSave}>Save</button>
 	<button on:click={onClick}>Load all notes</button>
 
-	<div class="row">
-		<Greet />
-	</div>
 	<ul>
 		{#each files as f}
 			<!-- svelte-ignore a11y-click-events-have-key-events -->
@@ -73,8 +78,7 @@
 
 <style lang="scss">
 	.split {
-		display: grid;
-		grid-template-columns: 1fr 1fr;
+		display: flex;
 	}
 	li {
 		margin: 0.25em 0;

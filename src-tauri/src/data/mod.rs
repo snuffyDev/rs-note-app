@@ -27,8 +27,8 @@ impl AppData {
 }
 
 pub enum InsertKind {
-    Uuid(Option<Uuid>),
-    String(Option<String>),
+    Uuid(Uuid),
+    String(String),
 }
 
 // #[serde(rename_all = "camelCase")]
@@ -40,7 +40,7 @@ pub struct NoteFile {
 }
 
 impl NoteFile {
-    pub fn new(file_path: PathBuf, content: String) -> Self {
+    pub fn new(file_path: &PathBuf, content: &String) -> Self {
         let uuid = Uuid::new_v4();
         Self {
             file_path: file_path
@@ -67,43 +67,47 @@ impl NoteFile {
         Ok(note)
     }
     // Save the note file to disk and update self
-    pub fn save(&self, buf: &[u8]) -> Result<(), String> {
-        let file = NoteFile {
-            content: String::from_utf8(buf.to_vec()).unwrap(),
-            file_path: self.file_path.to_owned(),
-            uuid: self.uuid,
-        };
-        // self.content = String::from_utf8(buf.to_vec()).unwrap();
-
-        match write_atomically(&self.file_path.to_path_buf(), to_json(&file).unwrap()) {
+    pub fn save(&mut self, buf: &[u8]) -> Result<Self, String> {
+        self.content = String::from_utf8(buf.to_vec()).unwrap();
+        match write_atomically(&self.file_path.to_path_buf(), to_json(self).unwrap()) {
             Ok(_) => {}
             Err(e) => throw!("File save error: {}", e.to_string()),
         }
 
-        Ok(())
+        Ok(self.to_owned())
+    }
+}
+
+impl Default for NoteFile {
+    fn default() -> Self {
+        Self {
+            file_path: Default::default(),
+            uuid: Default::default(),
+            content: Default::default(),
+        }
     }
 }
 
 pub trait KV {
-    fn set(&mut self, uuid: InsertKind, content: String);
+    fn set(&mut self, uuid: InsertKind, content: &String);
 
-    fn get(&mut self, uuid: Option<Uuid>) -> Option<NoteFile>;
+    fn get(&self, uuid: Option<Uuid>) -> Option<NoteFile>;
     fn get_all(&self) -> Vec<NoteFile>;
 
-    fn has_key(&self, uuid: Option<Uuid>) -> bool;
+    fn has_key(&self, uuid: &Option<Uuid>) -> bool;
 }
 
 #[derive(Serialize, Debug, Deserialize, Clone)]
 pub struct Notes {
     pub data_path: PathBuf,
-    pub entries: HashMap<Uuid, Option<NoteFile>>,
+    pub entries: HashMap<Uuid, NoteFile>,
 }
 
 impl Notes {
     // Initialize Notes without reading the data directory
-    pub fn new(data_path: PathBuf) -> Notes {
+    pub fn new(data_path: &PathBuf) -> Notes {
         Self {
-            entries: HashMap::<Uuid, Option<NoteFile>>::new(),
+            entries: HashMap::<Uuid, NoteFile>::new(),
             data_path: data_path.to_path_buf(),
         }
     }
@@ -113,7 +117,7 @@ impl Notes {
         for entry in read_dir(data_path).unwrap() {
             if let Ok(e) = entry {
                 if let Ok(note) = NoteFile::load(&e.path()) {
-                    entries.insert(note.uuid.unwrap().to_owned(), Some(note));
+                    entries.insert(note.uuid.unwrap().to_owned(), note);
                 }
                 {
                     eprintln!("ERROR! LOAD FROM DIR!!!");
@@ -129,68 +133,50 @@ impl Notes {
     pub fn insert(&mut self, key: InsertKind, content: &str) {
         match key {
             InsertKind::Uuid(uuid) => {
-                if let Some(uuid) = uuid {
-                    if let true = self.entries.contains_key(&uuid) {
-                        let data = self.entries.get_mut(&uuid).unwrap();
-                        let note = data.as_ref().unwrap();
-                        note.save(&content.as_bytes()).unwrap();
-                    } else {
-                        let content_bytes = &content.as_bytes();
-                        let new_note =
-                            NoteFile::new(self.data_path.to_path_buf(), content.to_string());
-                        new_note
-                            .save(content_bytes)
-                            .expect("Error saving newly inserted note");
-
-                        self.entries.insert(uuid.to_owned(), Some(new_note));
-                    }
-                    {}
+                if self.entries.contains_key(&uuid) {
+                    let entry = self.entries.entry(uuid).or_default();
+                    *entry = entry.save(&content.as_bytes()).unwrap()
                 };
             }
             InsertKind::String(_title) => {
                 let content_bytes = &content.as_bytes();
-                let new_note = NoteFile::new(self.data_path.to_path_buf(), content.to_string());
+                let mut new_note =
+                    NoteFile::new(&self.data_path.to_path_buf(), &content.to_string());
 
                 new_note
                     .save(content_bytes)
                     .expect("Error saving newly inserted note");
 
                 self.entries
-                    .insert(new_note.uuid.unwrap().to_owned(), Some(new_note));
+                    .insert(new_note.uuid.unwrap().to_owned(), new_note);
             }
         }
     }
 }
 
 impl KV for Notes {
-    fn set(&mut self, uuid: InsertKind, content: String) {
+    fn set(&mut self, uuid: InsertKind, content: &String) {
         match uuid {
             InsertKind::Uuid(uuid) => {
-                self.entries.insert(
-                    uuid.unwrap(),
-                    Some(NoteFile::new(self.data_path.to_path_buf(), content)),
-                );
+                self.entries
+                    .insert(uuid, NoteFile::new(&self.data_path.to_path_buf(), content));
             }
 
-            InsertKind::String(string) => {}
+            InsertKind::String(_string) => {}
         }
     }
 
-    fn get(&mut self, uuid: Option<Uuid>) -> Option<NoteFile> {
+    fn get(&self, uuid: Option<Uuid>) -> std::option::Option<NoteFile> {
         let result = self.entries.get(&uuid.unwrap()).unwrap();
-        result.to_owned()
+        Some(result.to_owned())
     }
 
     fn get_all(&self) -> Vec<NoteFile> {
-        let result = self
-            .entries
-            .values()
-            .map(|e| e.to_owned().unwrap())
-            .collect();
+        let result = self.entries.values().map(|e| e.to_owned()).collect();
         result
     }
 
-    fn has_key(&self, uuid: Option<Uuid>) -> bool {
+    fn has_key(&self, uuid: &Option<Uuid>) -> bool {
         if let Some(uuid) = uuid {
             let key_exists = self.entries.contains_key(&uuid);
             return key_exists;
@@ -216,7 +202,7 @@ impl Store {
             create_dir(data_path.data_dir.clone()).unwrap();
             Self {
                 data_path: data_path.data_dir.clone(),
-                notes: Arc::new(Mutex::new(Notes::new(data_path.data_dir))),
+                notes: Arc::new(Mutex::new(Notes::new(&data_path.data_dir))),
             }
         }
     }
@@ -226,20 +212,20 @@ impl Store {
         data.insert(key, &content.clone());
     }
 
-    pub fn set_new(&self, key: Option<String>, content: String) {
+    pub fn set_new(&self, key: String, content: String) {
         let mut data = self.notes.lock().unwrap();
-        data.insert(InsertKind::String(key.to_owned()), &content.clone());
+        data.insert(InsertKind::String(key), &content);
     }
 
-    pub fn get(&self, key: Option<Uuid>) -> Option<NoteFile> {
-        let mut data = self.notes.lock().unwrap();
-        let note = data.get(key);
-        note
+    pub fn get(&self, key: Option<Uuid>) -> NoteFile {
+        let data = self.notes.lock().unwrap();
+        let note = &data.get(key.to_owned()).unwrap();
+        note.to_owned()
     }
 
     pub fn has_key(&self, key: Option<Uuid>) -> bool {
         let data = self.notes.lock().unwrap();
-        let key_exists = match data.has_key(key) {
+        let key_exists = match data.has_key(&key) {
             true => true,
             false => false,
         };
@@ -267,11 +253,9 @@ pub fn save_file(
     let cache = data.0.lock().unwrap();
 
     match cache.has_key(uuid) {
-        true => {
-            cache.get(uuid).unwrap().save(&content.as_bytes()).unwrap();
-        }
+        true => cache.set(InsertKind::Uuid(uuid.unwrap()), content),
         _ => {
-            cache.set(InsertKind::String(Some(file_name)), content.clone());
+            cache.set(InsertKind::String(file_name), content.clone());
         }
     };
 
